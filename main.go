@@ -41,7 +41,7 @@ func GetPoloniexTicker(args []interface{}) *PoloniexTicker{
 }
 
 func main() {
-	bot, err := tgbotapi.NewBotAPI("apikey")
+	bot, err := tgbotapi.NewBotAPI("")
 	if err != nil {
 		log.Panic(err)
 	}
@@ -61,7 +61,6 @@ func main() {
 	if err := c.Subscribe("ticker", nil, func(args []interface{}, kwargs map[string]interface{}) {
 		ticker := GetPoloniexTicker(args)
 		if ticker.Currency == "BTC_LTC" {
-			//log.Println(ticker)
 			btcData <- ticker
 		}
 	}); err != nil {

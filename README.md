@@ -1,1 +1,3 @@
-# Simple Telegram bot that gets updates from Poloniex ticker
+# Telegram bot for crypto exchanges
+
+todo
