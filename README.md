@@ -1,0 +1,1 @@
+# Simple Telegram bot that gets updates from Poloniex ticker
