@@ -1,10 +1,11 @@
 package main
 
 import (
-	"github.com/shopspring/decimal"
 	"fmt"
-	"gopkg.in/jcelliott/turnpike.v2"
 	"log"
+
+	"github.com/shopspring/decimal"
+	"gopkg.in/jcelliott/turnpike.v2"
 	"gopkg.in/telegram-bot-api.v4"
 )
 
@@ -19,9 +20,10 @@ type PoloniexTicker struct {
 	IsFrozen      bool
 	High24Hr      decimal.Decimal
 	Low24Hr       decimal.Decimal
+	Spread        decimal.Decimal
 }
 
-func GetPoloniexTicker(args []interface{}) *PoloniexTicker{
+func GetPoloniexTicker(args []interface{}) *PoloniexTicker {
 	ticker := new(PoloniexTicker)
 	ticker.Currency = args[0].(string)
 	ticker.Last, _ = decimal.NewFromString(args[1].(string))
@@ -37,6 +39,7 @@ func GetPoloniexTicker(args []interface{}) *PoloniexTicker{
 	}
 	ticker.High24Hr, _ = decimal.NewFromString(args[8].(string))
 	ticker.Low24Hr, _ = decimal.NewFromString(args[9].(string))
+	ticker.Spread = ticker.LowestAsk.Sub(ticker.HighestBid)
 	return ticker
 }
 
@@ -78,7 +81,7 @@ func main() {
 		if update.Message.Text == "/polo" {
 			if btcData != nil {
 				data := <-btcData
-				messageStr := fmt.Sprintf("Currency: %s\nLast value: %s\nLowest Ask: %s\nHighest Bid: %s\nPercent Change:  %s\nBase Volume: %s\nQuote Volume: %s\n24h High: %s", data.Currency, data.Last, data.LowestAsk, data.HighestBid, data.PercentChange, data.BaseVolume, data.QuoteVolume, data.High24Hr)
+				messageStr := fmt.Sprintf("Currency: %s\nLast value: %s\nLowest Ask: %s\nHighest Bid: %s\nSpread: %s\nPercent Change:  %s\nBase Volume: %s\nQuote Volume: %s\n24h High: %s", data.Currency, data.Last, data.LowestAsk, data.HighestBid, data.Spread, data.PercentChange, data.BaseVolume, data.QuoteVolume, data.High24Hr)
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, messageStr)
 				bot.Send(msg)
 			}
@@ -89,4 +92,3 @@ func main() {
 	<-c.ReceiveDone
 	log.Println("disconnected")
 }
-
