@@ -67,12 +67,12 @@ func main() {
 	log.Println("Connected to poloniex router")
 	_, err = c.JoinRealm("realm1", nil)
 
-	btcltcData := make(chan *PoloniexTicker)
+	btcltcData := new(PoloniexTicker)
 	onPoloniexTicker := func(args []interface{}, kwargs map[string]interface{}) {
 		ticker := GetPoloniexTicker(args)
 		if ticker.Currency == "BTC_LTC" {
 			log.Println(ticker)
-			btcltcData <- ticker
+			btcltcData = ticker
 		}
 	}
 
@@ -90,7 +90,7 @@ func main() {
 
 		if update.Message.Text == fmt.Sprintf("/polo@%s", bot.Self.UserName) {
 			if btcltcData != nil {
-				data := <-btcltcData
+				data := btcltcData
 				messageStr := fmt.Sprintf("Currency: %s\nTime: %s\nLast value: %s\nLowest Ask: %s\nHighest Bid: %s\nSpread: %s\nPercent Change:  %s\nBase Volume: %s\nQuote Volume: %s\n24h High: %s", data.Currency, data.Time, data.Last, data.LowestAsk, data.HighestBid, data.Spread, data.PercentChange, data.BaseVolume, data.QuoteVolume, data.High24Hr)
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, messageStr)
 				bot.Send(msg)
