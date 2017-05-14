@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"log"
 
+	"time"
+
 	"github.com/shopspring/decimal"
 	"gopkg.in/jcelliott/turnpike.v2"
 	"gopkg.in/telegram-bot-api.v4"
-	"time"
 )
 
+// PoloniexTicker struct
 type PoloniexTicker struct {
 	Currency      string
 	Time          time.Time
@@ -25,6 +27,8 @@ type PoloniexTicker struct {
 	Spread        decimal.Decimal
 }
 
+// GetPoloniexTicker transforms []interface{} received from poloniex
+// websocket api into PoloniexTicker type
 func GetPoloniexTicker(args []interface{}) *PoloniexTicker {
 	ticker := new(PoloniexTicker)
 	ticker.Currency = args[0].(string)
@@ -84,7 +88,7 @@ func main() {
 			continue
 		}
 
-		if update.Message.Text == "/polo" {
+		if update.Message.Text == fmt.Sprintf("/polo@%s", bot.Self.UserName) {
 			if btcltcData != nil {
 				data := <-btcltcData
 				messageStr := fmt.Sprintf("Currency: %s\nTime: %s\nLast value: %s\nLowest Ask: %s\nHighest Bid: %s\nSpread: %s\nPercent Change:  %s\nBase Volume: %s\nQuote Volume: %s\n24h High: %s", data.Currency, data.Time, data.Last, data.LowestAsk, data.HighestBid, data.Spread, data.PercentChange, data.BaseVolume, data.QuoteVolume, data.High24Hr)
