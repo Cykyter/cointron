@@ -7,10 +7,12 @@ import (
 	"github.com/shopspring/decimal"
 	"gopkg.in/jcelliott/turnpike.v2"
 	"gopkg.in/telegram-bot-api.v4"
+	"time"
 )
 
 type PoloniexTicker struct {
 	Currency      string
+	Time          time.Time
 	Last          decimal.Decimal
 	LowestAsk     decimal.Decimal
 	HighestBid    decimal.Decimal
@@ -26,6 +28,7 @@ type PoloniexTicker struct {
 func GetPoloniexTicker(args []interface{}) *PoloniexTicker {
 	ticker := new(PoloniexTicker)
 	ticker.Currency = args[0].(string)
+	ticker.Time = time.Now()
 	ticker.Last, _ = decimal.NewFromString(args[1].(string))
 	ticker.LowestAsk, _ = decimal.NewFromString(args[2].(string))
 	ticker.HighestBid, _ = decimal.NewFromString(args[3].(string))
@@ -49,7 +52,7 @@ func main() {
 		log.Panic(err)
 	}
 
-	bot.Debug = true
+	bot.Debug = false
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
 	fmt.Println("Testing Poloniex WAMP")
@@ -60,18 +63,21 @@ func main() {
 	log.Println("Connected to poloniex router")
 	_, err = c.JoinRealm("realm1", nil)
 
-	btcData := make(chan *PoloniexTicker)
-	if err := c.Subscribe("ticker", nil, func(args []interface{}, kwargs map[string]interface{}) {
+	btcltcData := make(chan *PoloniexTicker)
+	onPoloniexTicker := func(args []interface{}, kwargs map[string]interface{}) {
 		ticker := GetPoloniexTicker(args)
 		if ticker.Currency == "BTC_LTC" {
-			btcData <- ticker
+			log.Println(ticker)
+			btcltcData <- ticker
 		}
-	}); err != nil {
+	}
+
+	if err := c.Subscribe("ticker", nil, onPoloniexTicker); err != nil {
 		log.Fatalln("Error subscribing to ticker:", err)
 	}
 
 	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 6000
+	u.Timeout = 60
 	updates, err := bot.GetUpdatesChan(u)
 	for update := range updates {
 		if update.Message == nil {
@@ -79,9 +85,9 @@ func main() {
 		}
 
 		if update.Message.Text == "/polo" {
-			if btcData != nil {
-				data := <-btcData
-				messageStr := fmt.Sprintf("Currency: %s\nLast value: %s\nLowest Ask: %s\nHighest Bid: %s\nSpread: %s\nPercent Change:  %s\nBase Volume: %s\nQuote Volume: %s\n24h High: %s", data.Currency, data.Last, data.LowestAsk, data.HighestBid, data.Spread, data.PercentChange, data.BaseVolume, data.QuoteVolume, data.High24Hr)
+			if btcltcData != nil {
+				data := <-btcltcData
+				messageStr := fmt.Sprintf("Currency: %s\nTime: %s\nLast value: %s\nLowest Ask: %s\nHighest Bid: %s\nSpread: %s\nPercent Change:  %s\nBase Volume: %s\nQuote Volume: %s\n24h High: %s", data.Currency, data.Time, data.Last, data.LowestAsk, data.HighestBid, data.Spread, data.PercentChange, data.BaseVolume, data.QuoteVolume, data.High24Hr)
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, messageStr)
 				bot.Send(msg)
 			}
