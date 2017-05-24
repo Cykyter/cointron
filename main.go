@@ -1,14 +1,24 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
-
+	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
-	"gopkg.in/jcelliott/turnpike.v2"
 	"gopkg.in/telegram-bot-api.v4"
+)
+
+const (
+	PoloniexBaseURL   = "https://poloniex.com/"
+	PoloniexPublicURL = PoloniexBaseURL + "public"
+	PoloniexTickerAPI = PoloniexPublicURL + "?command=returnTicker"
 )
 
 // PoloniexTicker struct
@@ -21,64 +31,21 @@ type PoloniexTicker struct {
 	PercentChange decimal.Decimal
 	BaseVolume    decimal.Decimal
 	QuoteVolume   decimal.Decimal
-	IsFrozen      bool
+	IsFrozen      string
 	High24Hr      decimal.Decimal
 	Low24Hr       decimal.Decimal
-	Spread        decimal.Decimal
-}
-
-// GetPoloniexTicker transforms []interface{} received from poloniex
-// websocket api into PoloniexTicker type
-func GetPoloniexTicker(args []interface{}) *PoloniexTicker {
-	ticker := new(PoloniexTicker)
-	ticker.Currency = args[0].(string)
-	ticker.Time = time.Now()
-	ticker.Last, _ = decimal.NewFromString(args[1].(string))
-	ticker.LowestAsk, _ = decimal.NewFromString(args[2].(string))
-	ticker.HighestBid, _ = decimal.NewFromString(args[3].(string))
-	ticker.PercentChange, _ = decimal.NewFromString(args[4].(string))
-	ticker.BaseVolume, _ = decimal.NewFromString(args[5].(string))
-	ticker.QuoteVolume, _ = decimal.NewFromString(args[6].(string))
-	if args[7].(float64) != 1 {
-		ticker.IsFrozen = true
-	} else {
-		ticker.IsFrozen = false
-	}
-	ticker.High24Hr, _ = decimal.NewFromString(args[8].(string))
-	ticker.Low24Hr, _ = decimal.NewFromString(args[9].(string))
-	ticker.Spread = ticker.LowestAsk.Sub(ticker.HighestBid)
-	return ticker
 }
 
 func main() {
-	bot, err := tgbotapi.NewBotAPI("")
+	telegramAPIKey := os.Getenv("CoinTronTelegramAPIKey")
+	log.Printf(telegramAPIKey)
+	bot, err := tgbotapi.NewBotAPI(telegramAPIKey)
 	if err != nil {
 		log.Panic(err)
 	}
 
 	bot.Debug = false
 	log.Printf("Authorized on account %s", bot.Self.UserName)
-
-	fmt.Println("Testing Poloniex WAMP")
-	c, err := turnpike.NewWebsocketClient(turnpike.JSON, "wss://api.poloniex.com", nil, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("Connected to poloniex router")
-	_, err = c.JoinRealm("realm1", nil)
-
-	btcltcData := new(PoloniexTicker)
-	onPoloniexTicker := func(args []interface{}, kwargs map[string]interface{}) {
-		ticker := GetPoloniexTicker(args)
-		if ticker.Currency == "BTC_LTC" {
-			log.Println(ticker)
-			btcltcData = ticker
-		}
-	}
-
-	if err := c.Subscribe("ticker", nil, onPoloniexTicker); err != nil {
-		log.Fatalln("Error subscribing to ticker:", err)
-	}
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -87,18 +54,67 @@ func main() {
 		if update.Message == nil {
 			continue
 		}
-
-		if update.Message.Text == fmt.Sprintf("/polo@%s", bot.Self.UserName) {
-			if btcltcData != nil {
-				data := btcltcData
-				messageStr := fmt.Sprintf("Currency: %s\nTime: %s\nLast value: %s\nLowest Ask: %s\nHighest Bid: %s\nSpread: %s\nPercent Change:  %s\nBase Volume: %s\nQuote Volume: %s\n24h High: %s", data.Currency, data.Time, data.Last, data.LowestAsk, data.HighestBid, data.Spread, data.PercentChange, data.BaseVolume, data.QuoteVolume, data.High24Hr)
-				msg := tgbotapi.NewMessage(update.Message.Chat.ID, messageStr)
-				bot.Send(msg)
-			}
+		messageStr, msgErr := messageHandler(update.Message.Text, bot.Self.UserName)
+		if msgErr == nil {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, messageStr)
+			bot.Send(msg)
 		}
 	}
+}
 
-	log.Println("listening for meta events")
-	<-c.ReceiveDone
-	log.Println("disconnected")
+func enabledBotCommand(s string, botname string) bool {
+	str := strings.Split(s, " ")
+	if str[0] == fmt.Sprintf("/polo@%s", botname) || str[0] == "/polo" {
+		return true
+	}
+	return false
+}
+
+func messageHandler(s string, botname string) (string, error) {
+	str := strings.Split(s, " ")
+	if str[0] == fmt.Sprintf("/polo@%s", botname) || str[0] == "/polo" {
+		if len(str) == 1 {
+			// Default to BTC LTC
+			data, _ := getCurrentPoloniex("BTC LTC")
+			return data, nil
+		}
+
+		if len(str) == 3 {
+			data, _ := getCurrentPoloniex(fmt.Sprintf("%s %s", strings.ToUpper(str[1]), strings.ToUpper(str[2])))
+			return data, nil
+		}
+	}
+	return "", errors.New("Invalid command")
+}
+
+func getCurrentPoloniex(args string) (string, error) {
+	currencyPair := strings.Split(args, " ")
+
+	if len(currencyPair) != 2 {
+		return "", errors.New("Invalid args")
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	response, err := client.Get(PoloniexTickerAPI)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	currentTime := time.Now()
+	body, readErr := ioutil.ReadAll(response.Body)
+	if readErr != nil {
+		return "", readErr
+	}
+	var data map[string]PoloniexTicker
+	decodeErr := json.Unmarshal(body, &data)
+	if decodeErr != nil {
+		return "", decodeErr
+	}
+
+	ticker, tickerErr := data[fmt.Sprintf("%s_%s", currencyPair[0], currencyPair[1])]
+	if tickerErr == false {
+		return "", errors.New("Invalid ticker value")
+	}
+
+	return fmt.Sprintf("Currency: %s\nTime: %s\nLast value: %s\nLowest Ask: %s\nHighest Bid: %s\nSpread: %s\nPercent Change:  %s\nBase Volume: %s\nQuote Volume: %s\n24h High: %s", args, currentTime, ticker.Last, ticker.LowestAsk, ticker.HighestBid, ticker.LowestAsk.Sub(ticker.HighestBid), ticker.PercentChange, ticker.BaseVolume, ticker.QuoteVolume, ticker.High24Hr), nil
 }
