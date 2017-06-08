@@ -1,44 +1,24 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"strings"
-	"time"
 
-	"github.com/shopspring/decimal"
 	"gopkg.in/telegram-bot-api.v4"
 )
 
+// Constants
 const (
-	PoloniexBaseURL   = "https://poloniex.com/"
-	PoloniexPublicURL = PoloniexBaseURL + "public"
-	PoloniexTickerAPI = PoloniexPublicURL + "?command=returnTicker"
+	Poloniex = 1
+	Bitfinex = 2
 )
-
-// PoloniexTicker struct
-type PoloniexTicker struct {
-	Currency      string
-	Time          time.Time
-	Last          decimal.Decimal
-	LowestAsk     decimal.Decimal
-	HighestBid    decimal.Decimal
-	PercentChange decimal.Decimal
-	BaseVolume    decimal.Decimal
-	QuoteVolume   decimal.Decimal
-	IsFrozen      string
-	High24Hr      decimal.Decimal
-	Low24Hr       decimal.Decimal
-}
 
 func main() {
 	telegramAPIKey := os.Getenv("CoinTronTelegramAPIKey")
-	log.Printf(telegramAPIKey)
+	log.Print(telegramAPIKey)
 	bot, err := tgbotapi.NewBotAPI(telegramAPIKey)
 	if err != nil {
 		log.Panic(err)
@@ -50,71 +30,62 @@ func main() {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 	updates, err := bot.GetUpdatesChan(u)
+	if err != nil {
+		log.Printf("Unable to get bot updates %s", err)
+	}
+
 	for update := range updates {
 		if update.Message == nil {
 			continue
 		}
 		messageStr, msgErr := messageHandler(update.Message.Text, bot.Self.UserName)
-		if msgErr == nil {
+		if msgErr != nil {
+			log.Printf("Message error: %s", msgErr)
+		} else {
+			log.Printf("Responding to query \"%s\" made by %s", update.Message.Text, update.Message.From)
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, messageStr)
-			bot.Send(msg)
+			_, msgSendErr := bot.Send(msg)
+			if msgSendErr != nil {
+				log.Printf("Bot message send error %s", msgSendErr)
+			}
 		}
 	}
 }
 
-func enabledBotCommand(s string, botname string) bool {
+func enabledBotCommand(s string, botname string) (int, error) {
 	str := strings.Split(s, " ")
 	if str[0] == fmt.Sprintf("/polo@%s", botname) || str[0] == "/polo" {
-		return true
+		return Poloniex, nil
+	} else if str[0] == fmt.Sprintf("/bitfinex@%s", botname) || str[0] == "/bitfinex" {
+		return Bitfinex, nil
 	}
-	return false
+	return 0, errors.New("Invalid command")
 }
 
 func messageHandler(s string, botname string) (string, error) {
 	str := strings.Split(s, " ")
-	if str[0] == fmt.Sprintf("/polo@%s", botname) || str[0] == "/polo" {
-		if len(str) == 1 {
-			// Default to BTC LTC
-			data, _ := getCurrentPoloniex("BTC LTC")
-			return data, nil
-		}
+	requestExchange, commandError := enabledBotCommand(s, botname)
+	if commandError != nil {
+		log.Printf("Bot command error %s", commandError)
+	}
 
-		if len(str) == 3 {
-			data, _ := getCurrentPoloniex(fmt.Sprintf("%s %s", strings.ToUpper(str[1]), strings.ToUpper(str[2])))
-			return data, nil
+	switch requestExchange {
+	case Poloniex:
+		if len(str) == 1 {
+			data, err := getCurrentPoloniex("BTC LTC")
+			return data, err
+		} else if len(str) == 3 {
+			data, err := getCurrentPoloniex(fmt.Sprintf("%s %s", strings.ToUpper(str[1]), strings.ToUpper(str[2])))
+			return data, err
+		}
+	case Bitfinex:
+		if len(str) == 1 {
+			data, err := getCurrentBitfinex("LTC BTC")
+			return data, err
+		} else if len(str) == 3 {
+			data, err := getCurrentBitfinex(fmt.Sprintf("%s %s", strings.ToUpper(str[1]), strings.ToUpper(str[2])))
+			return data, err
 		}
 	}
 	return "", errors.New("Invalid command")
-}
-
-func getCurrentPoloniex(args string) (string, error) {
-	currencyPair := strings.Split(args, " ")
-
-	if len(currencyPair) != 2 {
-		return "", errors.New("Invalid args")
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	response, err := client.Get(PoloniexTickerAPI)
-	if err != nil {
-		return "", err
-	}
-	defer response.Body.Close()
-	currentTime := time.Now()
-	body, readErr := ioutil.ReadAll(response.Body)
-	if readErr != nil {
-		return "", readErr
-	}
-	var data map[string]PoloniexTicker
-	decodeErr := json.Unmarshal(body, &data)
-	if decodeErr != nil {
-		return "", decodeErr
-	}
-
-	ticker, tickerErr := data[fmt.Sprintf("%s_%s", currencyPair[0], currencyPair[1])]
-	if tickerErr == false {
-		return "", errors.New("Invalid ticker value")
-	}
-
-	return fmt.Sprintf("Currency: %s\nTime: %s\nLast value: %s\nLowest Ask: %s\nHighest Bid: %s\nSpread: %s\nPercent Change:  %s\nBase Volume: %s\nQuote Volume: %s\n24h High: %s", args, currentTime, ticker.Last, ticker.LowestAsk, ticker.HighestBid, ticker.LowestAsk.Sub(ticker.HighestBid), ticker.PercentChange, ticker.BaseVolume, ticker.QuoteVolume, ticker.High24Hr), nil
 }
