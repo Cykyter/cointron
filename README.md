@@ -1,3 +1,8 @@
 # Telegram bot for crypto exchanges
 
-todo
+Simple bot to query some crypto exchanges.
+
+Currently supports all available currencies in following exchanges:
+
+* Bitfinex
+* Polonies
